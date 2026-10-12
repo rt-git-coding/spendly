@@ -1,10 +1,21 @@
+import os
 import sqlite3
 
-from flask import Flask, redirect, render_template, request, url_for
+from flask import Flask, redirect, render_template, request, session, url_for
 
-from database.db import create_user, get_db, get_user_by_email, init_db, seed_db
+from database.db import (
+    create_user,
+    get_db,
+    get_user_by_email,
+    get_user_by_id,
+    init_db,
+    seed_db,
+    verify_user,
+)
 
 app = Flask(__name__)
+# The fallback key is for local development only; set SPENDLY_SECRET_KEY in production.
+app.secret_key = os.environ.get("SPENDLY_SECRET_KEY", "dev-only-insecure-key-change-me")
 
 with app.app_context():
     init_db()
@@ -14,6 +25,18 @@ with app.app_context():
 # ------------------------------------------------------------------ #
 # Routes                                                              #
 # ------------------------------------------------------------------ #
+
+def _current_user():
+    user_id = session.get("user_id")
+    if user_id is None:
+        return None
+    return get_user_by_id(user_id)
+
+
+@app.context_processor
+def inject_current_user():
+    return {"current_user": _current_user()}
+
 
 @app.route("/")
 def landing():
@@ -57,9 +80,30 @@ def register():
     return redirect(url_for("login"))
 
 
-@app.route("/login")
+def _login_error(message, email, status):
+    return render_template("login.html", error=message, email=email), status
+
+
+@app.route("/login", methods=["GET", "POST"])
 def login():
-    return render_template("login.html")
+    if request.method == "GET":
+        if _current_user():
+            return redirect(url_for("landing"))
+        return render_template("login.html")
+
+    email = request.form.get("email", "").strip().lower()
+    password = request.form.get("password", "")
+
+    if not email or not password:
+        return _login_error("Email and password are required.", email, 400)
+
+    user = verify_user(email, password)
+    if user is None:
+        return _login_error("Invalid email or password.", email, 401)
+
+    session.clear()
+    session["user_id"] = user["id"]
+    return redirect(url_for("landing"))
 
 
 @app.route("/terms")
@@ -78,7 +122,8 @@ def privacy():
 
 @app.route("/logout")
 def logout():
-    return "Logout — coming in Step 3"
+    session.clear()
+    return redirect(url_for("landing"))
 
 
 @app.route("/profile")
