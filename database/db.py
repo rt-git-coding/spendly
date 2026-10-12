@@ -2,7 +2,7 @@ import sqlite3
 from datetime import date
 from pathlib import Path
 
-from werkzeug.security import generate_password_hash
+from werkzeug.security import check_password_hash, generate_password_hash
 
 DB_PATH = Path(__file__).resolve().parent.parent / "expense_tracker.db"
 
@@ -108,3 +108,21 @@ def create_user(name, email, password):
         return cursor.lastrowid
     finally:
         conn.close()
+
+
+def get_user_by_id(user_id):
+    conn = get_db()
+    try:
+        return conn.execute(
+            "SELECT id, name, email, created_at FROM users WHERE id = ?",
+            (user_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+
+
+def verify_user(email, password):
+    user = get_user_by_email(email)
+    if user and check_password_hash(user["password_hash"], password):
+        return user
+    return None
